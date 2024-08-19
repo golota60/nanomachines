@@ -1,8 +1,10 @@
+type ActionType = <T = unknown>(context: T) => void;
+
 type TransitionName<T extends string> = Capitalize<Lowercase<T>>;
 
 type Transitions<T extends Record<string, unknown>> = keyof T extends string
   ? {
-      [K in keyof T as `${TransitionName<K>}To${TransitionName<keyof T>}`]?:
+      [K in keyof T as `${TransitionName<K>}TO${TransitionName<keyof T>}`]?:
         | {
             /**
              * Any additional action you want to run automatically when nanomachine changes state.
@@ -10,9 +12,9 @@ type Transitions<T extends Record<string, unknown>> = keyof T extends string
              * If your transition should only be valid under a condition, you can `throw` here to stop the transition.
              * Then, your exact error will be re-thrown when you call `transition`.
              *
-             * @param {unknown} context - The context to pass when executing `action` function during the transition.
+             * @param {unknown} context - The context to pass when executing `action` function during the transition. If not provided when executing `transition`, then default to `undefined`.
              */
-            action?: (context: unknown) => void;
+            action?: ActionType;
           }
         | true;
     }
@@ -37,17 +39,49 @@ export const createNanomachine = <
   const { initialState, possibleStates, transitions } = createParams;
   let state = initialState;
 
-  const possibleStatesValues = Object.values(possibleStates);
   const possibleStatesNames = Object.keys(possibleStates);
-  const transitionBase = (targetState: S) => {
+
+  const transitionsEntries = Object.entries(transitions);
+
+  const transitionBase = (targetState: S, extraContext: unknown) => {
     if (!targetState)
       throw new Error(
-        `\`targetState\` was not provided while attempting to transition from state "${state}".`
+        `\`targetState\` was not provided while attempting to transition. State at the time of this error: "${state}".`
       );
-    if (possibleStatesNames.includes(targetState)) {
+    if (!possibleStatesNames.includes(targetState)) {
       throw new Error(
-        `\`targetState\` is not listed as a possible state to transition from state "${state}".`
+        `\`targetState\` is not listed as a part of \`possibleStates\`. State at the time of this error: "${state}".`
       );
+    }
+    const validTargetTransitions = transitionsEntries.reduce<S[]>(
+      (acc, [transitionName, actions]) => {
+        // We should be safe to split by `TO` even if the state has `TO` in it's name, cause transitions are CamelCasedTOCamelCased.
+        const [fromTransition, toTransition] = transitionName.split("TO");
+
+        if (fromTransition !== state) {
+          // Filter all the transitions not from the current one
+          return acc;
+        }
+
+        return [...acc, toTransition as S];
+      },
+      []
+    );
+
+    if (!validTargetTransitions.includes(targetState)) {
+      throw new Error(
+        `Attempted invalid state change. \`targetState\` "${targetState}" is not listed as a possible state to transition from state "${state}". Add \`${state}TO${targetState}\` in \`transitions\` to if you want to make this transition valid.`
+      );
+    }
+
+    const transitionKey = `${state}TO${targetState}`;
+    // Execute any additional actions
+    const transitionObject = transitions[transitionKey] as {
+      action?: ActionType;
+    };
+
+    if (transitionObject.action) {
+      transitionObject.action(extraContext);
     }
 
     state = targetState;
@@ -57,10 +91,10 @@ export const createNanomachine = <
     /** Attempt to transition to a target state, throws on fail */
     transition: transitionBase,
     /** A non-throw version of `transition`. Returns `false` on fail. */
-    transitionSafe: (targetState: S) => {
+    transitionSafe: (targetState: S, extraContext: unknown) => {
       let transitionResult;
       try {
-        transitionResult = transitionBase(targetState);
+        transitionResult = transitionBase(targetState, extraContext);
       } catch (err) {
         transitionResult = err;
       }
@@ -80,21 +114,14 @@ const exampleUsage = () => {
 
   const machine = createNanomachine({
     initialState: PossibleStates.INIT,
-    possibleStates: {
-      [PossibleStates.INIT]: {
-        // Store any additional context to be associated with the state
-      },
-      [PossibleStates.STARTED]: {},
-      [PossibleStates.LOADING]: {},
-      [PossibleStates.FINISH]: {},
-    },
+    possibleStates: PossibleStates,
     transitions: {
-      InitToStarted: {
-        action: (context: unknown) => {
-          // Any additional stuff you want to happen during the transition. Can influence the result!
+      InitTOStarted: {
+        action: (context) => {
+          // Any additional stuff you want to happen during the transition. Can influence the success of the transition!
         },
       },
-      StartedToLoading: true,
+      StartedTOLoading: true,
     },
   });
 };
