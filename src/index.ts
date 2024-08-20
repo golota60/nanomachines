@@ -20,8 +20,11 @@ type Transitions<T extends Record<string, unknown>> = keyof T extends string
     }
   : never;
 
-interface CreateMachineArgs<T extends Record<S, unknown>, S extends string> {
-  initialState: S;
+// Get the key of Record as string
+type Keyof<T extends Record<string, unknown>> = Extract<keyof T, string>;
+
+interface CreateMachineArgs<T extends Record<string, unknown>> {
+  initialState: Keyof<T>;
   possibleStates: T;
   /**
    * Allowed transitions list. The existence of the named transition means it's valid.
@@ -30,11 +33,8 @@ interface CreateMachineArgs<T extends Record<S, unknown>, S extends string> {
   transitions: Transitions<T>;
 }
 
-export const createNanomachine = <
-  T extends Record<S, unknown>,
-  S extends string
->(
-  createParams: CreateMachineArgs<T, S>
+export const createNanomachine = <T extends Record<string, unknown>>(
+  createParams: CreateMachineArgs<T>
 ) => {
   const { initialState, possibleStates, transitions } = createParams;
   let state = initialState;
@@ -43,8 +43,8 @@ export const createNanomachine = <
 
   const transitionsEntries = Object.entries(transitions);
 
-  const transitionBase = (targetState: S, extraContext: unknown) => {
-    if (!targetState)
+  const transitionBase = (targetState: Keyof<T>, extraContext?: unknown) => {
+    if (!targetState || typeof targetState !== "string")
       throw new Error(
         `\`targetState\` was not provided while attempting to transition. State at the time of this error: "${state}".`
       );
@@ -53,7 +53,7 @@ export const createNanomachine = <
         `\`targetState\` is not listed as a part of \`possibleStates\`. State at the time of this error: "${state}".`
       );
     }
-    const validTargetTransitions = transitionsEntries.reduce<S[]>(
+    const validTargetTransitions = transitionsEntries.reduce<Keyof<T>[]>(
       (acc, [transitionName, actions]) => {
         // We should be safe to split by `TO` even if the state has `TO` in it's name, cause transitions are CamelCasedTOCamelCased.
         const [fromTransition, toTransition] = transitionName.split("TO");
@@ -63,7 +63,7 @@ export const createNanomachine = <
           return acc;
         }
 
-        return [...acc, toTransition as S];
+        return [...acc, toTransition as Keyof<T>];
       },
       []
     );
@@ -91,7 +91,7 @@ export const createNanomachine = <
     /** Attempt to transition to a target state, throws on fail */
     transition: transitionBase,
     /** A non-throw version of `transition`. Returns `false` on fail. */
-    transitionSafe: (targetState: S, extraContext: unknown) => {
+    transitionSafe: (targetState: Keyof<T>, extraContext?: unknown) => {
       let transitionResult;
       try {
         transitionResult = transitionBase(targetState, extraContext);
@@ -101,6 +101,7 @@ export const createNanomachine = <
 
       return transitionResult;
     },
+    getState: () => state,
   };
 };
 
@@ -124,4 +125,11 @@ const exampleUsage = () => {
       StartedTOLoading: true,
     },
   });
+
+  // Get the state
+  const currentState = machine.getState();
+  // Attempt to transition to a state.
+  machine.transition(PossibleStates.FINISH);
+  // Attempt to transition to a state, without throwing an error on fail(returns it instead).
+  machine.transitionSafe(PossibleStates.FINISH);
 };

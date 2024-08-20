@@ -4,8 +4,14 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run"
   },
-  "keywords": ["state machine", "state"],
-  "license": "MIT"
+  "keywords": [
+    "state machine",
+    "state"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "vitest": "^2.0.5"
+  }
 }
